@@ -1,164 +1,178 @@
 
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
-<title>Ghost Hunter</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAT HORROR</title>
 <style>
+* { box-sizing: border-box; }
 body {
   margin: 0;
-  background: #100c25;
+  background: #050509;
   color: white;
   text-align: center;
   font-family: Arial;
 }
-h1 { color: #a78bfa; }
+h1 {
+  color: #ff3030;
+  text-shadow: 0 0 15px red;
+}
 canvas {
-  background: linear-gradient(#17113b,#08051b);
-  border: 3px solid #8b5cf6;
-  max-width: 95%;
+  width: 95%;
+  max-width: 800px;
+  background: #10101b;
+  border: 3px solid #8b0000;
+  box-shadow: 0 0 25px red;
 }
 button {
-  background: #8b5cf6;
+  padding: 12px 20px;
+  background: darkred;
+  border: 1px solid red;
   color: white;
-  border: 0;
-  padding: 12px 25px;
-  border-radius: 10px;
-  font-size: 18px;
-  cursor: pointer;
+  font-size: 17px;
+  border-radius: 8px;
+  margin: 8px;
 }
 </style>
 </head>
 <body>
 
-<h1>👻 GHOST HUNTER 🔫</h1>
-<p>Score: <span id="score">0</span>
- | Lives: <span id="lives">3</span></p>
+<h1>🐱 CAT HORROR 👹</h1>
+<p>❤️ GATO: 1 VIDA | 👹 FANTASTIC: 1 VIDA</p>
+<p>Flechas o A/D para moverte | ESPACIO para disparar</p>
 
-<canvas id="game" width="600" height="450"></canvas>
-<p>Move: ← → or A / D | Shoot: SPACE</p>
-<button onclick="restart()">Restart Game</button>
+<canvas id="game" width="800" height="500"></canvas>
+<br>
+<button onclick="restart()">REINICIAR JUEGO</button>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
-let player, ghosts, bullets, score, lives, over;
+let cat, monster, bullets, gameOver, won;
 let keys = {};
+let cooldown = 0;
 
 function restart() {
-  player = {x:275, y:390, w:50, h:35};
-  ghosts = [];
+  cat = {x:100, y:350, lives:1};
+  monster = {x:650, y:350, lives:1};
   bullets = [];
-  score = 0;
-  lives = 3;
-  over = false;
-  update();
+  gameOver = false;
+  won = false;
+  cooldown = 0;
+  requestAnimationFrame(loop);
 }
 
 document.addEventListener("keydown", e => {
   keys[e.code] = true;
-  if(["Space","ArrowLeft","ArrowRight"].includes(e.code))
-    e.preventDefault();
+  if(e.code === "Space") e.preventDefault();
 });
 document.addEventListener("keyup", e => keys[e.code] = false);
 
-function shoot() {
-  bullets.push({x:player.x+23,y:player.y});
+function drawBackground() {
+  ctx.fillStyle = "#090912";
+  ctx.fillRect(0,0,800,500);
+
+  // Luna
+  ctx.fillStyle = "#b5b5c9";
+  ctx.beginPath();
+  ctx.arc(680,80,35,0,Math.PI*2);
+  ctx.fill();
+
+  // Árboles
+  for(let i=0;i<12;i++) {
+    let x=i*75;
+    ctx.fillStyle="#080e0c";
+    ctx.fillRect(x+25,180,18,300);
+    ctx.beginPath();
+    ctx.moveTo(x-30,230);
+    ctx.lineTo(x+35,80);
+    ctx.lineTo(x+100,230);
+    ctx.fill();
+  }
+
+  ctx.fillStyle="#15120e";
+  ctx.fillRect(0,440,800,60);
 }
 
-let cooldown = 0;
-let spawn = 0;
+function drawCat() {
+  ctx.font="55px Arial";
+  ctx.fillText("🐱",cat.x,cat.y);
 
-function update() {
-  if(over) return;
+  // Arma de fantasía
+  ctx.fillStyle="#777";
+  ctx.fillRect(cat.x+40,cat.y-28,48,9);
+  ctx.fillStyle="#333";
+  ctx.fillRect(cat.x+55,cat.y-18,12,15);
+}
 
-  ctx.clearRect(0,0,600,450);
+function drawMonster() {
+  ctx.font="75px Arial";
+  ctx.fillText("👹",monster.x,monster.y);
 
-  // Stars
-  ctx.fillStyle = "#ffffff";
-  for(let i=0;i<35;i++){
-    ctx.fillRect((i*97)%600,(i*53)%450,2,2);
-  }
+  ctx.fillStyle="red";
+  ctx.font="20px Arial";
+  ctx.fillText("FANTASTIC",monster.x-10,monster.y+15);
+}
 
-  if(keys.ArrowLeft || keys.KeyA) player.x -= 5;
-  if(keys.ArrowRight || keys.KeyD) player.x += 5;
-  player.x = Math.max(0,Math.min(550,player.x));
+function loop() {
+  if(gameOver || won) {
+    drawBackground();
+    drawCat();
+    drawMonster();
 
-  if(keys.Space && cooldown<=0){
-    shoot();
-    cooldown=15;
-  }
-  cooldown--;
-
-  // Player
-  ctx.font = "38px Arial";
-  ctx.fillText("🚀",player.x,player.y+30);
-
-  // Shoot bullets
-  bullets.forEach(b => {
-    b.y -= 8;
-    ctx.font = "22px Arial";
-    ctx.fillText("✨",b.x,b.y);
-  });
-  bullets = bullets.filter(b=>b.y>0);
-
-  // Spawn ghosts
-  spawn++;
-  if(spawn>45){
-    ghosts.push({
-      x:Math.random()*550,
-      y:-30,
-      speed:1.5+Math.random()*2
-    });
-    spawn=0;
-  }
-
-  // Ghost movement
-  ghosts.forEach(g=>{
-    g.y += g.speed;
-    ctx.font="35px Arial";
-    ctx.fillText("👻",g.x,g.y);
-
-    // Ghost hits player
-    if(g.y>player.y && g.y<player.y+35 &&
-       g.x>player.x-30 && g.x<player.x+50){
-      lives--;
-      g.y=500;
-    }
-
-    // Ghost escapes
-    if(g.y>450){
-      lives--;
-      g.y=500;
-    }
-
-    // Bullet hits ghost
-    bullets.forEach(b=>{
-      if(Math.abs(b.x-g.x)<30 &&
-         Math.abs(b.y-g.y)<30 && !g.hit){
-        g.hit=true;
-        score+=10;
-        b.y=-100;
-      }
-    });
-  });
-
-  ghosts=ghosts.filter(g=>!g.hit && g.y<480);
-
-  document.getElementById("score").textContent=score;
-  document.getElementById("lives").textContent=lives;
-
-  if(lives<=0){
-    over=true;
-    ctx.fillStyle="white";
-    ctx.font="42px Arial";
-    ctx.fillText("GAME OVER!",175,210);
-    ctx.font="24px Arial";
-    ctx.fillText("Final Score: "+score,220,255);
+    ctx.fillStyle="red";
+    ctx.font="48px Arial";
+    ctx.textAlign="center";
+    ctx.fillText(won ? "¡GANASTE!" : "GAME OVER",400,240);
+    ctx.font="22px Arial";
+    ctx.fillText(won ? "Fantastic ha sido derrotado." :
+      "Fantastic te atrapó...",400,280);
+    ctx.textAlign="left";
     return;
   }
 
-  requestAnimationFrame(update);
+  drawBackground();
+
+  if(keys.ArrowRight || keys.KeyD)
+    cat.x=Math.min(700,cat.x+4);
+  if(keys.ArrowLeft || keys.KeyA)
+    cat.x=Math.max(0,cat.x-4);
+
+  if(keys.Space && cooldown<=0) {
+    bullets.push({x:cat.x+75,y:cat.y-20});
+    cooldown=20;
+  }
+  cooldown--;
+
+  // Movimiento de Fantastic
+  if(monster.x>cat.x+45) monster.x-=1.1;
+  else if(monster.x<cat.x+30) monster.x+=1.1;
+
+  // Disparos
+  ctx.font="25px Arial";
+  bullets.forEach(b=>{
+    b.x+=9;
+    ctx.fillText("🔥",b.x,b.y);
+
+    if(Math.abs(b.x-monster.x)<55 &&
+       Math.abs(b.y-monster.y)<65) {
+      won=true;
+    }
+  });
+
+  bullets=bullets.filter(b=>b.x<800);
+
+  drawCat();
+  drawMonster();
+
+  // Colisión
+  if(Math.abs(cat.x-monster.x)<55) {
+    gameOver=true;
+  }
+
+  requestAnimationFrame(loop);
 }
 
 restart();
