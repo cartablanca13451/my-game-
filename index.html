@@ -1,181 +1,1163 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CAT HORROR</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CAT HORROR 7.0</title>
 <style>
-* { box-sizing: border-box; }
-body {
-  margin: 0;
-  background: #050509;
-  color: white;
-  text-align: center;
-  font-family: Arial;
+*{box-sizing:border-box}
+body{
+ margin:0;background:#08070d;color:white;
+ font-family:Arial,sans-serif;text-align:center
 }
-h1 {
-  color: #ff3030;
-  text-shadow: 0 0 15px red;
+h1{
+ color:#e52b36;letter-spacing:5px;
+ text-shadow:0 0 18px red;margin:18px 0 8px
 }
-canvas {
-  width: 95%;
-  max-width: 800px;
-  background: #10101b;
-  border: 3px solid #8b0000;
-  box-shadow: 0 0 25px red;
+#game{
+ width:min(1000px,96vw);height:auto;
+ display:block;margin:12px auto;
+ border:3px solid #7c2028;
+ box-shadow:0 0 25px #75121c;
+ background:#111
 }
-button {
-  padding: 12px 20px;
-  background: darkred;
-  border: 1px solid red;
-  color: white;
-  font-size: 17px;
-  border-radius: 8px;
-  margin: 8px;
+.controls{color:#bbb;font-size:13px;margin:10px}
+button{
+ background:#74141b;color:white;
+ border:1px solid #e65a60;
+ padding:10px 18px;margin:5px;
+ cursor:pointer;font-weight:bold;border-radius:5px
 }
+button:hover{background:#b92730}
 </style>
 </head>
 <body>
 
-<h1>🐱 CAT HORROR 👹</h1>
-<p>❤️ GATO: 1 VIDA | 👹 FANTASTIC: 1 VIDA</p>
-<p>Flechas o A/D para moverte | ESPACIO para disparar</p>
+<h1>CAT HORROR 7.0</h1>
+<div class="controls">
+ A/D o flechas: mover | W/↑: saltar | ESPACIO: disparar |
+ SHIFT: impulso | P: pausa
+</div>
 
-<canvas id="game" width="800" height="500"></canvas>
-<br>
-<button onclick="restart()">REINICIAR JUEGO</button>
+<canvas id="game" width="1000" height="600"></canvas>
+
+<div>
+<button onclick="startGame()">JUGAR</button>
+<button onclick="togglePause()">PAUSAR</button>
+<button onclick="restartGame()">REINICIAR</button>
+</div>
 
 <script>
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
 
-let cat, monster, bullets, gameOver, won;
-let keys = {};
-let cooldown = 0;
+const W=1000,H=600,ground=510;
+const keys={};
 
-function restart() {
-  cat = {x:100, y:350, lives:1};
-  monster = {x:650, y:350, lives:1};
-  bullets = [];
-  gameOver = false;
-  won = false;
-  cooldown = 0;
-  requestAnimationFrame(loop);
+let gameState="menu";
+let level=1,frame=0,score=0,shake=0;
+let cat,ghost;
+let bullets=[],enemyProjectiles=[],particles=[],drops=[],ammoBoxes=[];
+let weaponLevel=1;
+let ammo=30;
+let ammoTimer=0;
+let message="",messageTime=0;
+let batPositions=[];
+
+const levelData=[
+ {name:"CABALLERO MALDITO",hp:120,speed:1.7,damage:1},
+ {name:"GUARDIÁN OSCURO",hp:210,speed:2.3,damage:1},
+ {name:"ESQUELETO GIGANTE",hp:440,speed:2.1,damage:2}
+];
+
+document.addEventListener("keydown",e=>{
+ keys[e.key.toLowerCase()]=true;
+ if([" ","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key))
+  e.preventDefault();
+ if(e.key.toLowerCase()==="p")togglePause();
+});
+
+document.addEventListener("keyup",e=>{
+ keys[e.key.toLowerCase()]=false;
+});
+
+function random(a,b){return Math.random()*(b-a)+a}
+
+function showMessage(t){
+ message=t;
+ messageTime=150;
 }
 
-document.addEventListener("keydown", e => {
-  keys[e.code] = true;
-  if(e.code === "Space") e.preventDefault();
-});
-document.addEventListener("keyup", e => keys[e.code] = false);
+function particle(x,y,color,count=8){
+ for(let i=0;i<count;i++){
+  particles.push({
+   x,y,vx:random(-4,4),vy:random(-5,2),
+   life:random(15,35),color,size:random(2,5)
+  });
+ }
+}
 
-function drawBackground() {
-  ctx.fillStyle = "#090912";
-  ctx.fillRect(0,0,800,500);
+function createCharacters(){
+ const data=levelData[level-1];
 
-  // Luna
-  ctx.fillStyle = "#b5b5c9";
+ cat={
+  x:100,y:ground-65,w:58,h:65,
+  vx:0,vy:0,lives:5,facing:1,onGround:true,
+  shootCooldown:0,dashCooldown:0,dashTime:0,
+  invincible:0,anim:0
+ };
+
+ ghost={
+  x:level===3?760:790,
+  y:ground-(level===3?170:110),
+  w:level===3?145:90,
+  h:level===3?170:110,
+  lives:data.hp,maxLives:data.hp,
+  speed:data.speed,damage:data.damage,
+  facing:-1,attackCooldown:60,attackTime:0,
+  hitCooldown:0,anim:0,
+  shield:false,shieldTimer:300,
+  shieldDuration:0,
+  throwTimer:240,
+  shockTimer:level===3?300:0,
+  isSkeleton:level===3
+ };
+}
+
+function startGame(){
+ level=1;
+ score=0;
+ weaponLevel=1;
+ ammo=30;
+ ammoTimer=0;
+ bullets=[];
+ enemyProjectiles=[];
+ particles=[];
+ drops=[];
+ ammoBoxes=[];
+ createCharacters();
+ gameState="playing";
+ showMessage("¡ENTRA AL CASTILLO!");
+}
+
+function restartGame(){startGame()}
+
+function togglePause(){
+ if(gameState==="playing")gameState="paused";
+ else if(gameState==="paused")gameState="playing";
+}
+
+function rectHit(a,b){
+ return a.x<b.x+b.w&&a.x+a.w>b.x&&
+ a.y<b.y+b.h&&a.y+a.h>b.y;
+}
+
+// GATO
+function updateCat(){
+ const left=keys["a"]||keys["arrowleft"];
+ const right=keys["d"]||keys["arrowright"];
+
+ if(left){cat.vx-=.9;cat.facing=-1}
+ if(right){cat.vx+=.9;cat.facing=1}
+
+ cat.vx*=cat.onGround?.82:.95;
+ cat.vx=Math.max(-7,Math.min(7,cat.vx));
+
+ if((keys["w"]||keys["arrowup"])&&cat.onGround){
+  cat.vy=-14;
+  cat.onGround=false;
+  particle(cat.x+cat.w/2,ground,"#aaa",5);
+ }
+
+ if(keys["shift"]&&cat.dashCooldown<=0){
+  cat.dashTime=10;
+  cat.dashCooldown=75;
+  cat.vx=cat.facing*14;
+  cat.invincible=12;
+  particle(cat.x+cat.w/2,cat.y+30,"#43eaff",12);
+ }
+
+ if(cat.dashTime>0){
+  cat.dashTime--;
+  cat.vx=cat.facing*14;
+ }
+
+ cat.vy+=.62;
+ cat.y+=cat.vy;
+ cat.x+=cat.vx;
+
+ if(cat.y+cat.h>=ground){
+  cat.y=ground-cat.h;
+  cat.vy=0;
+  cat.onGround=true;
+ }
+
+ cat.x=Math.max(5,Math.min(W-cat.w-5,cat.x));
+
+ if(cat.shootCooldown>0)cat.shootCooldown--;
+ if(cat.dashCooldown>0)cat.dashCooldown--;
+ if(cat.invincible>0)cat.invincible--;
+
+ cat.anim+=Math.abs(cat.vx)*.13;
+
+ if(keys[" "]&&cat.shootCooldown<=0&&ammo>0){
+  shootMagic();
+ }
+}
+
+function shootMagic(){
+ const damage=[2,3,4,5][weaponLevel-1];
+ const count=weaponLevel>=3?2:1;
+ const color=["#61dfff","#9c83ff","#ff9b40","#ffdc54"][weaponLevel-1];
+
+ for(let i=0;i<count;i++){
+  bullets.push({
+   x:cat.facing===1?cat.x+cat.w:cat.x-18,
+   y:cat.y+28+(i===1?12:0),
+   vx:cat.facing* (weaponLevel===4?13:11),
+   damage,life:90,color
+  });
+ }
+
+ ammo--;
+ cat.shootCooldown=Math.max(12,24-weaponLevel*3);
+ particle(cat.x+cat.w/2+cat.facing*25,cat.y+30,color,5);
+}
+
+// CAJAS DE MUNICIÓN
+function spawnAmmo(){
+ if(ammoBoxes.length>=3)return;
+
+ const x=random(50,W-75);
+ ammoBoxes.push({
+  x,y:ground-35,w:32,h:30,bob:0
+ });
+}
+
+function updateAmmo(){
+ ammoTimer++;
+
+ // Una caja nueva cada 5 segundos aproximadamente
+ if(ammoTimer>=300){
+  ammoTimer=0;
+  spawnAmmo();
+ }
+
+ for(let i=ammoBoxes.length-1;i>=0;i--){
+  const box=ammoBoxes[i];
+  box.bob=Math.sin(frame*.08+i)*5;
+  const hit={x:box.x,y:box.y+box.bob,w:box.w,h:box.h};
+
+  if(rectHit(cat,hit)){
+   ammo+=30;
+   particle(box.x+16,box.y,"#72ff8b",20);
+   ammoBoxes.splice(i,1);
+   showMessage("+30 MUNICIONES");
+  }
+ }
+}
+
+// HABILIDADES DE LOS JEFES
+function updateGhost(){
+ const distance=(cat.x+cat.w/2)-(ghost.x+ghost.w/2);
+ ghost.facing=distance>0?1:-1;
+ ghost.anim+=.06;
+
+ // Escudo periódico
+ ghost.shieldTimer--;
+
+ if(ghost.shieldTimer<=0&&!ghost.shield){
+  ghost.shield=true;
+  ghost.shieldDuration=110;
+  ghost.shieldTimer=420;
+  particle(ghost.x+ghost.w/2,ghost.y+55,"#62caff",20);
+ }
+
+ if(ghost.shield){
+  ghost.shieldDuration--;
+  if(ghost.shieldDuration<=0){
+   ghost.shield=false;
+   particle(ghost.x+ghost.w/2,ghost.y+55,"#62caff",12);
+  }
+ }
+
+ // Lanzamiento de espada
+ ghost.throwTimer--;
+
+ if(ghost.throwTimer<=0){
+  throwSword();
+  ghost.throwTimer=level===3?180:level===2?240:300;
+ }
+
+ // Movimiento y ataque cuerpo a cuerpo
+ if(ghost.attackTime>0){
+  ghost.attackTime--;
+
+  if(ghost.attackTime===6){
+   const hit={
+    x:ghost.facing===1?ghost.x+ghost.w-5:ghost.x-80,
+    y:ghost.y+20,
+    w:85,h:90
+   };
+
+   if(rectHit(hit,cat)&&cat.invincible<=0)damageCat();
+  }
+ }else{
+  if(Math.abs(distance)>115){
+   ghost.x+=ghost.facing*ghost.speed;
+  }else if(ghost.attackCooldown<=0){
+   ghost.attackTime=20;
+   ghost.attackCooldown=Math.max(30,75-level*12);
+  }
+ }
+
+ if(ghost.attackCooldown>0)ghost.attackCooldown--;
+
+ // Habilidad especial del esqueleto gigante
+ if(ghost.isSkeleton){
+  ghost.shockTimer--;
+  if(ghost.shockTimer<=0){
+   createShockwave();
+   ghost.shockTimer=280;
+  }
+ }
+
+ ghost.x=Math.max(15,Math.min(W-ghost.w-15,ghost.x));
+}
+
+function throwSword(){
+ const startX=ghost.x+ghost.w/2;
+ const startY=ghost.y+65;
+
+ enemyProjectiles.push({
+  x:startX,y:startY,
+  vx:ghost.facing*(level===3?8:7),
+  vy:-1,
+  life:140,
+  type:"sword",
+  size:level===3?23:17
+ });
+
+ particle(startX,startY,"#d7d9e5",8);
+}
+
+function createShockwave(){
+ const direction=cat.x>ghost.x?1:-1;
+
+ enemyProjectiles.push({
+  x:ghost.x+ghost.w/2,
+  y:ground-15,
+  vx:direction*6,
+  vy:0,
+  life:100,
+  type:"shock",
+  size:35
+ });
+
+ particle(ghost.x+ghost.w/2,ground,"#d6a6ff",20);
+}
+
+function damageCat(){
+ cat.lives-=ghost.damage;
+ cat.invincible=80;
+ cat.vx=-cat.facing*8;
+ cat.vy=-6;
+ shake=13;
+ particle(cat.x+cat.w/2,cat.y+30,"#ff3333",14);
+
+ if(cat.lives<=0)gameState="lost";
+}
+
+// PROYECTILES DEL GATO
+function updateBullets(){
+ for(let i=bullets.length-1;i>=0;i--){
+  const b=bullets[i];
+  b.x+=b.vx;
+  b.life--;
+
+  if(rectHit({x:b.x-8,y:b.y-8,w:18,h:18},ghost)){
+   if(!ghost.shield){
+    ghost.lives-=b.damage;
+    ghost.hitCooldown=7;
+    particle(b.x,b.y,b.color,6);
+   }else{
+    particle(b.x,b.y,"#62caff",5);
+   }
+
+   bullets.splice(i,1);
+
+   if(!ghost.shield)score+=10;
+
+   if(ghost.lives<=0){
+    defeatGhost();
+    return;
+   }
+   continue;
+  }
+
+  if(b.life<=0||b.x<0||b.x>W)bullets.splice(i,1);
+ }
+}
+
+// PROYECTILES DEL ENEMIGO
+function updateEnemyProjectiles(){
+ for(let i=enemyProjectiles.length-1;i>=0;i--){
+  const p=enemyProjectiles[i];
+  p.x+=p.vx;
+  p.y+=p.vy;
+  p.life--;
+
+  const hit={
+   x:p.x-p.size,y:p.y-p.size,
+   w:p.size*2,h:p.size*2
+  };
+
+  if(rectHit(hit,cat)&&cat.invincible<=0){
+   damageCat();
+   particle(p.x,p.y,"#ff4a4a",12);
+   enemyProjectiles.splice(i,1);
+   continue;
+  }
+
+  if(p.life<=0||p.x<-50||p.x>W+50){
+   enemyProjectiles.splice(i,1);
+  }
+ }
+}
+
+// RECOMPENSAS
+function defeatGhost(){
+ particle(ghost.x+ghost.w/2,ghost.y+40,"#c3a0ff",40);
+
+ if(level<3){
+  drops.push({
+   x:ghost.x+ghost.w/2-18,
+   y:ground-35,w:36,h:30,
+   type:weaponLevel+1,bob:0
+  });
+  gameState="reward";
+  showMessage("¡JEFE DERROTADO!");
+ }else{
+  gameState="won";
+ }
+}
+
+function updateDrops(){
+ for(const d of drops){
+  d.bob=Math.sin(frame*.08)*6;
+ }
+
+ for(let i=drops.length-1;i>=0;i--){
+  const d=drops[i];
+  if(rectHit(cat,{x:d.x,y:d.y+d.bob,w:d.w,h:d.h})){
+   weaponLevel=Math.min(4,d.type);
+   particle(d.x+15,d.y,"#ffe36c",25);
+   drops.splice(i,1);
+   createNextBoss();
+   return;
+  }
+ }
+}
+
+function createNextBoss(){
+ const oldLives=cat.lives;
+ const oldAmmo=ammo;
+
+ level++;
+ bullets=[];
+ enemyProjectiles=[];
+ particles=[];
+ ammoBoxes=[];
+ createCharacters();
+
+ cat.lives=oldLives;
+ cat.x=100;
+ ammo=oldAmmo;
+
+ gameState="playing";
+ showMessage("ARMA MEJORADA: NIVEL "+weaponLevel);
+}
+
+function updateParticles(){
+ for(let i=particles.length-1;i>=0;i--){
+  const p=particles[i];
+  p.x+=p.vx;p.y+=p.vy;
+  p.vy+=.12;p.life--;
+  if(p.life<=0)particles.splice(i,1);
+ }
+}
+
+function update(){
+ if(gameState!=="playing")return;
+
+ frame++;
+ updateCat();
+ updateGhost();
+ updateBullets();
+ updateEnemyProjectiles();
+ updateAmmo();
+ updateDrops();
+ updateParticles();
+
+ if(shake>0)shake*=.8;
+ if(messageTime>0)messageTime--;
+}
+
+// CASTILLO
+function drawBackground(){
+ const g=ctx.createLinearGradient(0,0,0,H);
+ g.addColorStop(0,"#090b19");
+ g.addColorStop(1,"#30202a");
+ ctx.fillStyle=g;
+ ctx.fillRect(0,0,W,H);
+
+ ctx.fillStyle="#d6d4c9";
+ ctx.beginPath();
+ ctx.arc(790,90,42,0,Math.PI*2);
+ ctx.fill();
+
+ // Muralla
+ ctx.fillStyle="#292b38";
+ ctx.fillRect(0,220,W,290);
+
+ // Torres
+ for(let i=0;i<5;i++){
+  let x=i*220-20;
+  ctx.fillStyle="#3a3b49";
+  ctx.fillRect(x,145,105,365);
+  ctx.fillStyle="#20212d";
+  ctx.fillRect(x-8,130,121,25);
+
+  for(let j=0;j<4;j++)ctx.fillRect(x+j*29,112,20,28);
+
+  for(let j=0;j<3;j++){
+   ctx.fillStyle="#ffad46";
+   ctx.beginPath();
+   ctx.arc(x+25+j*28,240,9,Math.PI,0);
+   ctx.fill();
+   ctx.fillRect(x+16+j*28,240,18,35);
+  }
+ }
+
+ // Puerta
+ ctx.fillStyle="#100f19";
+ ctx.beginPath();
+ ctx.moveTo(410,510);
+ ctx.lineTo(410,345);
+ ctx.arc(500,345,90,Math.PI,0);
+ ctx.lineTo(590,510);
+ ctx.fill();
+
+ ctx.strokeStyle="#70605a";
+ ctx.lineWidth=8;
+ ctx.stroke();
+
+ // Antorchas
+ for(let x of [150,350,650,850]){
+  ctx.fillStyle="#553b2a";
+  ctx.fillRect(x,350,8,40);
+  ctx.fillStyle="#ff9a2c";
+  ctx.shadowColor="#ff6b00";
+  ctx.shadowBlur=22;
   ctx.beginPath();
-  ctx.arc(680,80,35,0,Math.PI*2);
+  ctx.arc(x+4,345,9,0,Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur=0;
+ }
+
+ // Gárgolas
+ for(let x of [95,300,700,910])drawGargoyle(x,195);
+
+ // Murciélagos
+ for(let i=0;i<7;i++){
+  const x=(i*157+frame*1.1)%(W+80)-40;
+  const y=70+Math.sin(frame*.04+i)*20;
+  drawBat(x,y);
+ }
+
+ ctx.fillStyle="#17171e";
+ ctx.fillRect(0,ground,W,H-ground);
+ ctx.fillStyle="#64504b";
+ ctx.fillRect(0,ground,W,6);
+
+ for(let i=0;i<25;i++){
+  ctx.fillStyle="#29262b";
+  ctx.fillRect(i*42,ground+30+(i%3)*10,25,4);
+ }
+}
+
+function drawGargoyle(x,y){
+ ctx.fillStyle="#171922";
+ ctx.beginPath();
+ ctx.moveTo(x-25,y+20);
+ ctx.lineTo(x-45,y-20);
+ ctx.lineTo(x-8,y-5);
+ ctx.lineTo(x,y-24);
+ ctx.lineTo(x+8,y-5);
+ ctx.lineTo(x+45,y-20);
+ ctx.lineTo(x+25,y+20);
+ ctx.fill();
+
+ ctx.fillStyle="#a52b34";
+ ctx.fillRect(x-12,y+4,7,4);
+ ctx.fillRect(x+7,y+4,7,4);
+}
+
+function drawBat(x,y){
+ ctx.fillStyle="#090a12";
+ ctx.beginPath();
+ ctx.moveTo(x,y);
+ ctx.lineTo(x-15,y-9);
+ ctx.lineTo(x-10,y+3);
+ ctx.lineTo(x-22,y+10);
+ ctx.lineTo(x,y+7);
+ ctx.lineTo(x+22,y+10);
+ ctx.lineTo(x+10,y+3);
+ ctx.lineTo(x+15,y-9);
+ ctx.closePath();
+ ctx.fill();
+}
+
+// GATO
+function drawCat(){
+ ctx.save();
+
+ if(cat.invincible>0&&Math.floor(frame/5)%2===0)
+  ctx.globalAlpha=.4;
+
+ const x=cat.x,y=cat.y;
+ const run=Math.sin(cat.anim)*5;
+
+ ctx.strokeStyle="#222631";
+ ctx.lineWidth=8;
+ ctx.beginPath();
+ ctx.moveTo(x+12,y+42);
+ ctx.quadraticCurveTo(x-20,y+15+run,x-10,y+4+run);
+ ctx.stroke();
+
+ ctx.fillStyle="#282e3b";
+ ctx.beginPath();
+ ctx.ellipse(x+29,y+43,24,19,0,0,Math.PI*2);
+ ctx.fill();
+
+ ctx.fillStyle="#171923";
+ ctx.fillRect(x+10,y+48+run,10,17);
+ ctx.fillRect(x+36,y+48-run,10,17);
+
+ ctx.fillStyle="#303746";
+ ctx.beginPath();
+ ctx.arc(x+31,y+20,24,0,Math.PI*2);
+ ctx.fill();
+
+ ctx.beginPath();
+ ctx.moveTo(x+10,y+8);
+ ctx.lineTo(x+12,y-12);
+ ctx.lineTo(x+27,y+5);
+ ctx.moveTo(x+34,y+5);
+ ctx.lineTo(x+53,y-12);
+ ctx.lineTo(x+53,y+13);
+ ctx.fill();
+
+ ctx.fillStyle="#8bffff";
+ ctx.shadowColor="#00eaff";
+ ctx.shadowBlur=12;
+ ctx.fillRect(x+19,y+17,7,5);
+ ctx.fillRect(x+37,y+17,7,5);
+ ctx.shadowBlur=0;
+
+ ctx.fillStyle="#f58caa";
+ ctx.fillRect(x+29,y+27,5,4);
+
+ ctx.strokeStyle="#12e9ed";
+ ctx.lineWidth=3;
+ ctx.beginPath();
+ ctx.arc(x+30,y+40,15,.2,2.8);
+ ctx.stroke();
+
+ ctx.fillStyle="#202b3b";
+ ctx.fillRect(x+(cat.facing===1?39:-18),y+35,28,10);
+
+ ctx.fillStyle=["#61dfff","#9c83ff","#ff9b40","#ffdc54"][weaponLevel-1];
+ ctx.fillRect(x+(cat.facing===1?60:-22),y+38,7,4);
+
+ ctx.restore();
+}
+
+// JEFES
+function drawGhost(){
+ if(ghost.isSkeleton){
+  drawSkeleton();
+  return;
+ }
+
+ ctx.save();
+
+ const x=ghost.x,y=ghost.y;
+ const center=x+ghost.w/2;
+
+ // Capa
+ ctx.fillStyle=level===1?"#521b27":"#251c39";
+ ctx.beginPath();
+ ctx.moveTo(x+12,y+35);
+ ctx.lineTo(x+ghost.w-12,y+35);
+ ctx.lineTo(x+ghost.w+8,y+ghost.h);
+ ctx.lineTo(x-8,y+ghost.h);
+ ctx.closePath();
+ ctx.fill();
+
+ // Cuerpo
+ ctx.fillStyle="#59616d";
+ ctx.beginPath();
+ ctx.ellipse(center,y+65,ghost.w*.38,42,0,0,Math.PI*2);
+ ctx.fill();
+
+ // Pechera
+ ctx.fillStyle="#8994a4";
+ ctx.beginPath();
+ ctx.moveTo(center-27,y+36);
+ ctx.lineTo(center+27,y+36);
+ ctx.lineTo(center+32,y+78);
+ ctx.lineTo(center,y+91);
+ ctx.lineTo(center-32,y+78);
+ ctx.closePath();
+ ctx.fill();
+
+ ctx.strokeStyle="#d0d7df";
+ ctx.lineWidth=3;
+ ctx.stroke();
+
+ // Hombreras
+ for(const side of [-1,1]){
+  ctx.fillStyle="#8994a4";
+  ctx.beginPath();
+  ctx.moveTo(center+side*25,y+38);
+  ctx.lineTo(center+side*48,y+42);
+  ctx.lineTo(center+side*43,y+64);
+  ctx.lineTo(center+side*22,y+58);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle="#d2b66c";
+  ctx.beginPath();
+  ctx.arc(center+side*35,y+49,4,0,Math.PI*2);
+  ctx.fill();
+ }
+
+ // Casco
+ ctx.fillStyle="#a5aebc";
+ ctx.beginPath();
+ ctx.arc(center,y+22,30,Math.PI,0);
+ ctx.lineTo(center+28,y+35);
+ ctx.lineTo(center-28,y+35);
+ ctx.closePath();
+ ctx.fill();
+
+ ctx.strokeStyle="#dce2e9";
+ ctx.stroke();
+
+ ctx.fillStyle="#15151d";
+ ctx.fillRect(center-22,y+22,44,9);
+
+ ctx.fillStyle="#ff303b";
+ ctx.shadowColor="#ff0000";
+ ctx.shadowBlur=15;
+ ctx.fillRect(center-16,y+25,10,4);
+ ctx.fillRect(center+6,y+25,10,4);
+ ctx.shadowBlur=0;
+
+ // Espada
+ drawSword(center+ghost.facing*29,y+57,ghost.facing,ghost.attackTime>0);
+
+ ctx.restore();
+
+ drawHealthBar(center,y);
+ drawShield();
+}
+
+function drawSword(x,y,facing,swing){
+ ctx.save();
+ const angle=swing?(facing===1?-.85:Math.PI+.85):
+  (facing===1?.35:Math.PI-.35);
+
+ ctx.translate(x,y);
+ ctx.rotate(angle);
+
+ ctx.fillStyle="#44271b";
+ ctx.fillRect(0,-5,25,10);
+
+ ctx.fillStyle="#c5ae70";
+ ctx.fillRect(19,-14,7,28);
+
+ ctx.fillStyle="#cbd4df";
+ ctx.beginPath();
+ ctx.moveTo(24,-7);
+ ctx.lineTo(79,-4);
+ ctx.lineTo(94,0);
+ ctx.lineTo(79,4);
+ ctx.lineTo(24,7);
+ ctx.closePath();
+ ctx.fill();
+
+ ctx.strokeStyle="#fff";
+ ctx.lineWidth=2;
+ ctx.beginPath();
+ ctx.moveTo(28,0);
+ ctx.lineTo(84,0);
+ ctx.stroke();
+
+ ctx.restore();
+}
+
+function drawHealthBar(center,y){
+ ctx.fillStyle="#260c10";
+ ctx.fillRect(center-65,y-28,130,11);
+
+ ctx.fillStyle="#ed252c";
+ ctx.fillRect(center-65,y-28,
+  130*Math.max(0,ghost.lives/ghost.maxLives),11);
+
+ ctx.fillStyle="white";
+ ctx.font="12px Arial";
+ ctx.textAlign="center";
+ ctx.fillText(levelData[level-1].name,center,y-37);
+}
+
+function drawShield(){
+ if(!ghost.shield)return;
+
+ ctx.save();
+ ctx.strokeStyle="#54caff";
+ ctx.lineWidth=5;
+ ctx.shadowColor="#38baff";
+ ctx.shadowBlur=20;
+
+ ctx.beginPath();
+ ctx.ellipse(
+  ghost.x+ghost.w/2,
+  ghost.y+ghost.h/2,
+  ghost.w*.72,
+  ghost.h*.68,
+  0,0,Math.PI*2
+ );
+ ctx.stroke();
+
+ ctx.restore();
+}
+
+// ESQUELETO GIGANTE
+function drawSkeleton(){
+ ctx.save();
+
+ const x=ghost.x,y=ghost.y;
+ const cx=x+ghost.w/2;
+
+ // Capa oscura
+ ctx.fillStyle="#20152c";
+ ctx.beginPath();
+ ctx.moveTo(x+25,y+45);
+ ctx.lineTo(x+ghost.w-25,y+45);
+ ctx.lineTo(x+ghost.w+15,y+ghost.h);
+ ctx.lineTo(x-15,y+ghost.h);
+ ctx.closePath();
+ ctx.fill();
+
+ // Piernas óseas
+ ctx.strokeStyle="#ded4bd";
+ ctx.lineWidth=13;
+ ctx.lineCap="round";
+
+ ctx.beginPath();
+ ctx.moveTo(cx-22,y+115);
+ ctx.lineTo(cx-30,y+155);
+ ctx.moveTo(cx+22,y+115);
+ ctx.lineTo(cx+30,y+155);
+ ctx.stroke();
+
+ // Pies
+ ctx.lineWidth=10;
+ ctx.beginPath();
+ ctx.moveTo(cx-30,y+155);
+ ctx.lineTo(cx-47,y+162);
+ ctx.moveTo(cx+30,y+155);
+ ctx.lineTo(cx+47,y+162);
+ ctx.stroke();
+
+ // Costillas
+ ctx.strokeStyle="#e5ddca";
+ ctx.lineWidth=9;
+ for(let i=0;i<5;i++){
+  let ry=y+60+i*12;
+  ctx.beginPath();
+  ctx.moveTo(cx-35,ry);
+  ctx.quadraticCurveTo(cx,ry+12,cx+35,ry);
+  ctx.stroke();
+ }
+
+ // Columna vertebral
+ ctx.lineWidth=12;
+ ctx.beginPath();
+ ctx.moveTo(cx,y+40);
+ ctx.lineTo(cx,y+120);
+ ctx.stroke();
+
+ // Cráneo
+ ctx.fillStyle="#e4dcc8";
+ ctx.beginPath();
+ ctx.arc(cx,y+23,37,0,Math.PI*2);
+ ctx.fill();
+
+ // Mandíbula
+ ctx.fillRect(cx-24,y+45,48,17);
+
+ // Cuencas de los ojos
+ ctx.fillStyle="#17111d";
+ ctx.beginPath();
+ ctx.arc(cx-14,y+22,10,0,Math.PI*2);
+ ctx.arc(cx+14,y+22,10,0,Math.PI*2);
+ ctx.fill();
+
+ // Ojos rojos
+ ctx.fillStyle="#ff2626";
+ ctx.shadowColor="#ff0000";
+ ctx.shadowBlur=20;
+ ctx.fillRect(cx-19,y+19,9,6);
+ ctx.fillRect(cx+10,y+19,9,6);
+ ctx.shadowBlur=0;
+
+ // Dientes
+ ctx.fillStyle="#fff1d4";
+ for(let i=0;i<5;i++)ctx.fillRect(cx-18+i*9,y+48,4,10);
+
+ // Hombros y brazos
+ ctx.strokeStyle="#e4dcc8";
+ ctx.lineWidth=16;
+ ctx.beginPath();
+ ctx.moveTo(cx-35,y+55);
+ ctx.lineTo(cx-58,y+85);
+ ctx.lineTo(cx-48,y+112);
+ ctx.moveTo(cx+35,y+55);
+ ctx.lineTo(cx+58,y+85);
+ ctx.lineTo(cx+48,y+112);
+ ctx.stroke();
+
+ // Escudo óseo decorativo
+ ctx.fillStyle="#514052";
+ ctx.beginPath();
+ ctx.moveTo(cx-67,y+65);
+ ctx.lineTo(cx-95,y+78);
+ ctx.lineTo(cx-88,y+120);
+ ctx.lineTo(cx-67,y+135);
+ ctx.lineTo(cx-46,y+120);
+ ctx.lineTo(cx-39,y+78);
+ ctx.closePath();
+ ctx.fill();
+
+ ctx.strokeStyle="#c5ad7a";
+ ctx.lineWidth=4;
+ ctx.stroke();
+
+ // Espada gigante
+ drawSword(cx+ghost.facing*55,y+90,ghost.facing,ghost.attackTime>0);
+
+ // Corona
+ ctx.fillStyle="#c5a34c";
+ ctx.beginPath();
+ ctx.moveTo(cx-28,y-5);
+ ctx.lineTo(cx-33,y-28);
+ ctx.lineTo(cx-12,y-15);
+ ctx.lineTo(cx,y-35);
+ ctx.lineTo(cx+12,y-15);
+ ctx.lineTo(cx+33,y-28);
+ ctx.lineTo(cx+28,y-5);
+ ctx.closePath();
+ ctx.fill();
+
+ ctx.restore();
+
+ drawHealthBar(cx,y);
+ drawShield();
+}
+
+function drawBullets(){
+ for(const b of bullets){
+  ctx.save();
+  ctx.shadowColor=b.color;
+  ctx.shadowBlur=18;
+  ctx.fillStyle=b.color;
+  ctx.beginPath();
+  ctx.arc(b.x,b.y,8,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+ }
+}
+
+function drawEnemyProjectiles(){
+ for(const p of enemyProjectiles){
+  ctx.save();
+
+  if(p.type==="sword"){
+   ctx.translate(p.x,p.y);
+   ctx.rotate(Math.atan2(p.vy,p.vx));
+   ctx.fillStyle="#d6dce5";
+   ctx.fillRect(-p.size,-5,p.size*2,10);
+   ctx.fillStyle="#a78a50";
+   ctx.fillRect(-p.size,-8,8,16);
+  }else{
+   ctx.shadowColor="#d8a0ff";
+   ctx.shadowBlur=20;
+   ctx.fillStyle="#d8a0ff";
+   ctx.beginPath();
+   ctx.ellipse(p.x,p.y,p.size,10,0,0,Math.PI*2);
+   ctx.fill();
+  }
+
+  ctx.restore();
+ }
+}
+
+function drawAmmoBoxes(){
+ for(const b of ammoBoxes){
+  ctx.save();
+
+  ctx.fillStyle="#174c2b";
+  ctx.fillRect(b.x,b.y+b.bob,b.w,b.h);
+
+  ctx.strokeStyle="#7cff9a";
+  ctx.lineWidth=3;
+  ctx.strokeRect(b.x,b.y+b.bob,b.w,b.h);
+
+  ctx.fillStyle="#c5ffcf";
+  ctx.font="bold 18px Arial";
+  ctx.textAlign="center";
+  ctx.fillText("+",b.x+16,b.y+b.bob+22);
+
+  ctx.restore();
+ }
+}
+
+function drawDrops(){
+ for(const d of drops){
+  ctx.save();
+  ctx.shadowColor="#ffe66a";
+  ctx.shadowBlur=25;
+
+  ctx.fillStyle=["#61dfff","#9c83ff","#ff9b40","#ffdc54"][d.type-1];
+  ctx.beginPath();
+  ctx.arc(d.x+18,d.y+d.bob+15,17,0,Math.PI*2);
   ctx.fill();
 
-  // Árboles
-  for(let i=0;i<12;i++) {
-    let x=i*75;
-    ctx.fillStyle="#080e0c";
-    ctx.fillRect(x+25,180,18,300);
-    ctx.beginPath();
-    ctx.moveTo(x-30,230);
-    ctx.lineTo(x+35,80);
-    ctx.lineTo(x+100,230);
-    ctx.fill();
-  }
-
-  ctx.fillStyle="#15120e";
-  ctx.fillRect(0,440,800,60);
+  ctx.shadowBlur=0;
+  ctx.fillStyle="#fff";
+  ctx.font="bold 15px Arial";
+  ctx.textAlign="center";
+  ctx.fillText("★",d.x+18,d.y+d.bob+20);
+  ctx.restore();
+ }
 }
 
-function drawCat() {
-  ctx.font="55px Arial";
-  ctx.fillText("🐱",cat.x,cat.y);
-
-  // Arma de fantasía
-  ctx.fillStyle="#777";
-  ctx.fillRect(cat.x+40,cat.y-28,48,9);
-  ctx.fillStyle="#333";
-  ctx.fillRect(cat.x+55,cat.y-18,12,15);
+function drawParticles(){
+ for(const p of particles){
+  ctx.globalAlpha=Math.max(0,p.life/35);
+  ctx.fillStyle=p.color;
+  ctx.fillRect(p.x,p.y,p.size,p.size);
+  ctx.globalAlpha=1;
+ }
 }
 
-function drawMonster() {
-  ctx.font="75px Arial";
-  ctx.fillText("👹",monster.x,monster.y);
+function drawHUD(){
+ ctx.textAlign="left";
+ ctx.font="bold 19px Arial";
+ ctx.fillStyle="white";
+ ctx.fillText("CAT HORROR",18,28);
 
-  ctx.fillStyle="red";
-  ctx.font="20px Arial";
-  ctx.fillText("FANTASTIC",monster.x-10,monster.y+15);
+ ctx.font="16px Arial";
+ ctx.fillStyle="#ffaaaa";
+ ctx.fillText("VIDAS: "+cat.lives,18,55);
+
+ ctx.fillStyle="#aaffff";
+ ctx.fillText("NIVEL: "+level+" / 3",18,80);
+
+ ctx.fillStyle="white";
+ ctx.fillText("PUNTOS: "+score,18,105);
+
+ ctx.fillStyle="#ffe66a";
+ ctx.fillText("ARMA: "+weaponLevel,18,130);
+
+ ctx.fillStyle="#8dff9f";
+ ctx.fillText("MUNICIÓN: "+ammo,18,155);
 }
 
-function loop() {
-  if(gameOver || won) {
-    drawBackground();
-    drawCat();
-    drawMonster();
+function drawOverlay(title,subtitle){
+ ctx.fillStyle="rgba(0,0,0,.82)";
+ ctx.fillRect(0,0,W,H);
 
-    ctx.fillStyle="red";
-    ctx.font="48px Arial";
-    ctx.textAlign="center";
-    ctx.fillText(won ? "¡GANASTE!" : "GAME OVER",400,240);
-    ctx.font="22px Arial";
-    ctx.fillText(won ? "Fantastic ha sido derrotado." :
-      "Fantastic te atrapó...",400,280);
-    ctx.textAlign="left";
-    return;
-  }
+ ctx.textAlign="center";
+ ctx.shadowColor="#ff2222";
+ ctx.shadowBlur=20;
+ ctx.fillStyle="#ff3333";
+ ctx.font="bold 52px Arial";
+ ctx.fillText(title,W/2,255);
 
-  drawBackground();
+ ctx.shadowBlur=0;
+ ctx.fillStyle="white";
+ ctx.font="21px Arial";
+ ctx.fillText(subtitle,W/2,310);
+}
 
-  if(keys.ArrowRight || keys.KeyD)
-    cat.x=Math.min(700,cat.x+4);
-  if(keys.ArrowLeft || keys.KeyA)
-    cat.x=Math.max(0,cat.x-4);
+function draw(){
+ ctx.save();
 
-  if(keys.Space && cooldown<=0) {
-    bullets.push({x:cat.x+75,y:cat.y-20});
-    cooldown=20;
-  }
-  cooldown--;
+ if(shake>1){
+  ctx.translate(random(-shake,shake),random(-shake,shake));
+ }
 
-  // Movimiento de Fantastic
-  if(monster.x>cat.x+45) monster.x-=1.1;
-  else if(monster.x<cat.x+30) monster.x+=1.1;
+ drawBackground();
 
-  // Disparos
-  ctx.font="25px Arial";
-  bullets.forEach(b=>{
-    b.x+=9;
-    ctx.fillText("🔥",b.x,b.y);
-
-    if(Math.abs(b.x-monster.x)<55 &&
-       Math.abs(b.y-monster.y)<65) {
-      won=true;
-    }
-  });
-
-  bullets=bullets.filter(b=>b.x<800);
-
+ if(cat&&ghost){
   drawCat();
-  drawMonster();
+  drawGhost();
+  drawBullets();
+  drawEnemyProjectiles();
+  drawAmmoBoxes();
+  drawDrops();
+  drawParticles();
+  drawHUD();
+ }
 
-  // Colisión
-  if(Math.abs(cat.x-monster.x)<55) {
-    gameOver=true;
-  }
+ ctx.restore();
 
-  requestAnimationFrame(loop);
+ if(gameState==="menu")
+  drawOverlay("CAT HORROR 7.0","Sobrevive al castillo y derrota a sus tres jefes");
+
+ if(gameState==="paused")
+  drawOverlay("PAUSA","Presiona P para continuar");
+
+ if(gameState==="lost")
+  drawOverlay("GAME OVER","El castillo ha ganado. Reinicia para intentarlo");
+
+ if(gameState==="won")
+  drawOverlay("¡VICTORIA!","Has derrotado al Rey Esqueleto");
+
+ if(gameState==="reward")
+  drawOverlay("¡RECOMPENSA!","Camina sobre el orbe para conseguir un arma mejor");
+
+ if(messageTime>0&&gameState==="playing"){
+  ctx.fillStyle="#ffe66a";
+  ctx.font="bold 23px Arial";
+  ctx.textAlign="center";
+  ctx.fillText(message,W/2,185);
+ }
 }
 
-restart();
+function loop(){
+ update();
+ draw();
+ requestAnimationFrame(loop);
+}
+
+createCharacters();
+loop();
 </script>
 </body>
 </html>
